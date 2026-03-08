@@ -6,9 +6,6 @@ const fs = require("fs");
 const path = require("path");
 const { promisify } = require('util');
 const exec = promisify(require('child_process').exec);
-const UPLOAD_URL = process.env.UPLOAD_URL || '';      // 节点或订阅自动上传地址,需填写部署Merge-sub项目后的首页地址,例如：https://merge.xxx.com
-const PROJECT_URL = process.env.PROJECT_URL || '';    // 需要上传订阅或保活时需填写项目分配的url,例如：https://google.com
-const AUTO_ACCESS = process.env.AUTO_ACCESS || false; // false关闭自动保活，true开启,需同时填写PROJECT_URL变量
 const FILE_PATH = process.env.FILE_PATH || '.tmp';   // 运行目录,sub节点文件保存目录
 const SUB_PATH = process.env.SUB_PATH || 'sub';       // 订阅路径
 const PORT = process.env.SERVER_PORT || process.env.PORT || 3000;        // http服务订阅端口
@@ -49,41 +46,8 @@ let npmPath = path.join(FILE_PATH, npmName);
 let webPath = path.join(FILE_PATH, webName);
 let botPath = path.join(FILE_PATH, botName);
 let subPath = path.join(FILE_PATH, 'sub.txt');
-let listPath = path.join(FILE_PATH, 'list.txt');
 let bootLogPath = path.join(FILE_PATH, 'boot.log');
 let configPath = path.join(FILE_PATH, 'config.json');
-
-// 如果订阅器上存在历史运行节点则先删除
-function deleteNodes() {
-  try {
-    if (!UPLOAD_URL) return;
-    if (!fs.existsSync(subPath)) return;
-
-    let fileContent;
-    try {
-      fileContent = fs.readFileSync(subPath, 'utf-8');
-    } catch {
-      return null;
-    }
-
-    const decoded = Buffer.from(fileContent, 'base64').toString('utf-8');
-    const nodes = decoded.split('\n').filter(line => 
-      /(vless|vmess|trojan|hysteria2|tuic):\/\//.test(line)
-    );
-
-    if (nodes.length === 0) return;
-
-    axios.post(`${UPLOAD_URL}/api/delete-nodes`, 
-      JSON.stringify({ nodes }),
-      { headers: { 'Content-Type': 'application/json' } }
-    ).catch((error) => { 
-      return null; 
-    });
-    return null;
-  } catch (err) {
-    return null;
-  }
-}
 
 // 清理历史文件
 function cleanupOldFiles() {
@@ -451,7 +415,6 @@ trojan://${UUID}@${CFIP}:${CFPORT}?security=tls&sni=${argoDomain}&fp=firefox&typ
       console.log(Buffer.from(subTxt).toString('base64'));
       fs.writeFileSync(subPath, Buffer.from(subTxt).toString('base64'));
       console.log(`${FILE_PATH}/sub.txt saved successfully`);
-      uploadNodes();
       // 将内容进行 base64 编码并写入 SUB_PATH 路由
       app.get(`/${SUB_PATH}`, (req, res) => {
         const encodedContent = Buffer.from(subTxt).toString('base64');
@@ -461,62 +424,6 @@ trojan://${UUID}@${CFIP}:${CFPORT}?security=tls&sni=${argoDomain}&fp=firefox&typ
       resolve(subTxt);
       }, 2000);
     });
-  }
-}
-
-// 自动上传节点或订阅
-async function uploadNodes() {
-  if (UPLOAD_URL && PROJECT_URL) {
-    const subscriptionUrl = `${PROJECT_URL}/${SUB_PATH}`;
-    const jsonData = {
-      subscription: [subscriptionUrl]
-    };
-    try {
-        const response = await axios.post(`${UPLOAD_URL}/api/add-subscriptions`, jsonData, {
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-        
-        if (response && response.status === 200) {
-            console.log('Subscription uploaded successfully');
-            return response;
-        } else {
-          return null;
-          //  console.log('Unknown response status');
-        }
-    } catch (error) {
-        if (error.response) {
-            if (error.response.status === 400) {
-              //  console.error('Subscription already exists');
-            }
-        }
-    }
-  } else if (UPLOAD_URL) {
-      if (!fs.existsSync(listPath)) return;
-      const content = fs.readFileSync(listPath, 'utf-8');
-      const nodes = content.split('\n').filter(line => /(vless|vmess|trojan|hysteria2|tuic):\/\//.test(line));
-
-      if (nodes.length === 0) return;
-
-      const jsonData = JSON.stringify({ nodes });
-
-      try {
-          const response = await axios.post(`${UPLOAD_URL}/api/add-nodes`, jsonData, {
-              headers: { 'Content-Type': 'application/json' }
-          });
-          if (response && response.status === 200) {
-            console.log('Nodes uploaded successfully');
-            return response;
-        } else {
-            return null;
-        }
-      } catch (error) {
-          return null;
-      }
-  } else {
-      // console.log('Skipping upload nodes');
-      return;
   }
 }
 
@@ -547,40 +454,14 @@ function cleanFiles() {
 }
 cleanFiles();
 
-// 自动访问项目URL
-async function AddVisitTask() {
-  if (!AUTO_ACCESS || !PROJECT_URL) {
-    console.log("Skipping adding automatic access task");
-    return;
-  }
-
-  try {
-    const response = await axios.post('https://oooo.serv00.net/add-url', {
-      url: PROJECT_URL
-    }, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-    // console.log(`${JSON.stringify(response.data)}`);
-    console.log(`automatic access task added successfully`);
-    return response;
-  } catch (error) {
-    console.error(`Add automatic access task faild: ${error.message}`);
-    return null;
-  }
-}
-
 // 主运行逻辑
 async function startserver() {
   try {
     argoType();
-    deleteNodes();
     cleanupOldFiles();
     await generateConfig();
     await downloadFilesAndRun();
     await extractDomains();
-    await AddVisitTask();
   } catch (error) {
     console.error('Error in startserver:', error);
   }
