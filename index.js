@@ -13,9 +13,9 @@ const FILE_PATH = process.env.FILE_PATH || '.tmp';   // 运行目录,sub节点�
 const SUB_PATH = process.env.SUB_PATH || 'sub';       // 订阅路径
 const PORT = process.env.SERVER_PORT || process.env.PORT || 3000;        // http服务订阅端口
 const UUID = process.env.UUID || '9afd1229-b893-40c1-84dd-51e7ce204913'; // 使用哪吒v1,在不同的平台运行需修改UUID,否则会覆盖
-const NEZHA_SERVER = process.env.NEZHA_SERVER || '';        // 哪吒v1填写形式: nz.abc.com:8008  哪吒v0填写形式：nz.abc.com
-const NEZHA_PORT = process.env.NEZHA_PORT || '';            // 使用哪吒v1请留空，哪吒v0需填写
-const NEZHA_KEY = process.env.NEZHA_KEY || '';              // 哪吒v1的NZ_CLIENT_SECRET或哪吒v0的agent密钥
+const NEZHA_SERVER = process.env.NEZHA_SERVER || '';        // 哪吒服务地址，例如：nz.abc.com
+const NEZHA_PORT = process.env.NEZHA_PORT || '';            // 哪吒端口，需填写
+const NEZHA_KEY = process.env.NEZHA_KEY || '';              // 哪吒 agent 密钥
 const ARGO_DOMAIN = process.env.ARGO_DOMAIN || '';          // 固定隧道域名,留空即启用临时隧道
 const ARGO_AUTH = process.env.ARGO_AUTH || '';              // 固定隧道密钥json或token,留空即启用临时隧道,json获取地址：https://json.zone.id
 const ARGO_PORT = process.env.ARGO_PORT || 8001;            // 固定隧道端口,使用token需在cloudflare后台设置和这里一致
@@ -45,9 +45,7 @@ function generateRandomName() {
 const npmName = generateRandomName();
 const webName = generateRandomName();
 const botName = generateRandomName();
-const phpName = generateRandomName();
 let npmPath = path.join(FILE_PATH, npmName);
-let phpPath = path.join(FILE_PATH, phpName);
 let webPath = path.join(FILE_PATH, webName);
 let botPath = path.join(FILE_PATH, botName);
 let subPath = path.join(FILE_PATH, 'sub.txt');
@@ -135,6 +133,18 @@ function getSystemArchitecture() {
 }
 
 // 下载对应系统架构的依赖文件
+function getExtractedBinaryCandidates(fileUrl) {
+  if (fileUrl.includes('nezhahq/agent')) {
+    return ['nezha-agent'];
+  }
+
+  if (fileUrl.includes('XTLS/Xray-core')) {
+    return ['xray', 'Xray'];
+  }
+
+  return [];
+}
+
 function downloadFile(fileName, fileUrl, callback) {
   const filePath = fileName; 
   
@@ -153,10 +163,29 @@ function downloadFile(fileName, fileUrl, callback) {
     .then(response => {
       response.data.pipe(writer);
 
-      writer.on('finish', () => {
+      writer.on('finish', async () => {
         writer.close();
-        console.log(`Download ${path.basename(filePath)} successfully`);
-        callback(null, filePath);
+        try {
+          if (fileUrl.endsWith('.zip')) {
+            await exec(`unzip -o "${filePath}" -d "${FILE_PATH}" >/dev/null 2>&1`);
+            const extractedBinary = getExtractedBinaryCandidates(fileUrl)
+              .map(name => path.join(FILE_PATH, name))
+              .find(candidate => fs.existsSync(candidate));
+
+            if (!extractedBinary) {
+              throw new Error('binary not found after unzip');
+            }
+
+            fs.renameSync(extractedBinary, filePath);
+          }
+          console.log(`Download ${path.basename(filePath)} successfully`);
+          callback(null, filePath);
+        } catch (err) {
+          fs.unlink(filePath, () => { });
+          const errorMessage = `Download ${path.basename(filePath)} failed: ${err.message}`;
+          console.error(errorMessage);
+          callback(errorMessage);
+        }
       });
 
       writer.on('error', err => {
@@ -217,50 +246,11 @@ async function downloadFilesAndRun() {
       }
     });
   }
-  const filesToAuthorize = NEZHA_PORT ? [npmPath, webPath, botPath] : [phpPath, webPath, botPath];
+  const filesToAuthorize = NEZHA_SERVER && NEZHA_PORT && NEZHA_KEY ? [npmPath, webPath, botPath] : [webPath, botPath];
   authorizeFiles(filesToAuthorize);
 
   //运行ne-zha
-  if (NEZHA_SERVER && NEZHA_KEY) {
-    if (!NEZHA_PORT) {
-      // 检测哪吒是否开启TLS
-      const port = NEZHA_SERVER.includes(':') ? NEZHA_SERVER.split(':').pop() : '';
-      const tlsPorts = new Set(['443', '8443', '2096', '2087', '2083', '2053']);
-      const nezhatls = tlsPorts.has(port) ? 'true' : 'false';
-      // 生成 config.yaml
-      const configYaml = `
-client_secret: ${NEZHA_KEY}
-debug: false
-disable_auto_update: true
-disable_command_execute: false
-disable_force_update: true
-disable_nat: false
-disable_send_query: false
-gpu: false
-insecure_tls: true
-ip_report_period: 1800
-report_delay: 4
-server: ${NEZHA_SERVER}
-skip_connection_count: true
-skip_procs_count: true
-temperature: false
-tls: ${nezhatls}
-use_gitee_to_upgrade: false
-use_ipv6_country_code: false
-uuid: ${UUID}`;
-      
-      fs.writeFileSync(path.join(FILE_PATH, 'config.yaml'), configYaml);
-      
-      // 运行 v1
-      const command = `nohup ${phpPath} -c "${FILE_PATH}/config.yaml" >/dev/null 2>&1 &`;
-      try {
-        await exec(command);
-        console.log(`${phpName} is running`);
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      } catch (error) {
-        console.error(`php running error: ${error}`);
-      }
-    } else {
+  if (NEZHA_SERVER && NEZHA_PORT && NEZHA_KEY) {
       let NEZHA_TLS = '';
       const tlsPorts = ['443', '8443', '2096', '2087', '2083', '2053'];
       if (tlsPorts.includes(NEZHA_PORT)) {
@@ -274,9 +264,8 @@ uuid: ${UUID}`;
       } catch (error) {
         console.error(`npm running error: ${error}`);
       }
-    }
   } else {
-    console.log('NEZHA variable is empty,skip running');
+    console.log('NEZHA_SERVER, NEZHA_PORT or NEZHA_KEY is empty, skip running');
   }
   //运行xr-ay
   const command1 = `nohup ${webPath} -c ${FILE_PATH}/config.json >/dev/null 2>&1 &`;
@@ -317,34 +306,24 @@ function getFilesForArchitecture(architecture) {
   let baseFiles;
   if (architecture === 'arm') {
     baseFiles = [
-      { fileName: webPath, fileUrl: "https://arm64.ssss.nyc.mn/web" },
-      { fileName: botPath, fileUrl: "https://arm64.ssss.nyc.mn/bot" }
+      { fileName: webPath, fileUrl: "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-arm64-v8a.zip" },
+      { fileName: botPath, fileUrl: "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64" }
     ];
   } else {
     baseFiles = [
-      { fileName: webPath, fileUrl: "https://amd64.ssss.nyc.mn/web" },
-      { fileName: botPath, fileUrl: "https://amd64.ssss.nyc.mn/bot" }
+      { fileName: webPath, fileUrl: "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip" },
+      { fileName: botPath, fileUrl: "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" }
     ];
   }
 
-  if (NEZHA_SERVER && NEZHA_KEY) {
-    if (NEZHA_PORT) {
-      const npmUrl = architecture === 'arm' 
-        ? "https://arm64.ssss.nyc.mn/agent"
-        : "https://amd64.ssss.nyc.mn/agent";
-        baseFiles.unshift({ 
-          fileName: npmPath, 
-          fileUrl: npmUrl 
-        });
-    } else {
-      const phpUrl = architecture === 'arm' 
-        ? "https://arm64.ssss.nyc.mn/v1" 
-        : "https://amd64.ssss.nyc.mn/v1";
-      baseFiles.unshift({ 
-        fileName: phpPath, 
-        fileUrl: phpUrl
-      });
-    }
+  if (NEZHA_SERVER && NEZHA_PORT && NEZHA_KEY) {
+    const npmUrl = architecture === 'arm' 
+      ? "https://github.com/nezhahq/agent/releases/download/v0.20.5/nezha-agent_linux_arm64.zip"
+      : "https://github.com/nezhahq/agent/releases/download/v0.20.5/nezha-agent_linux_amd64.zip";
+    baseFiles.unshift({ 
+      fileName: npmPath, 
+      fileUrl: npmUrl 
+    });
   }
 
   return baseFiles;
@@ -546,10 +525,8 @@ function cleanFiles() {
   setTimeout(() => {
     const filesToDelete = [bootLogPath, configPath, webPath, botPath];  
     
-    if (NEZHA_PORT) {
+    if (NEZHA_SERVER && NEZHA_PORT && NEZHA_KEY) {
       filesToDelete.push(npmPath);
-    } else if (NEZHA_SERVER && NEZHA_KEY) {
-      filesToDelete.push(phpPath);
     }
 
     // Windows系统使用不同的删除命令
