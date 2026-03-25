@@ -419,12 +419,6 @@ trojan://${UUID}@${CFIP}:${CFPORT}?security=tls&sni=${argoDomain}&fp=firefox&typ
       console.log(Buffer.from(subTxt).toString('base64'));
       fs.writeFileSync(subPath, Buffer.from(subTxt).toString('base64'));
       console.log(`${FILE_PATH}/sub.txt saved successfully`);
-      // 将内容进行 base64 编码并写入 SUB_PATH 路由
-      app.get(`/${SUB_PATH}`, (req, res) => {
-        const encodedContent = Buffer.from(subTxt).toString('base64');
-        res.set('Content-Type', 'text/plain; charset=utf-8');
-        res.send(encodedContent);
-      });
       resolve(subTxt);
       }, 2000);
     });
@@ -482,6 +476,18 @@ app.get("/", async function(req, res) {
     res.send(data);
   } catch (err) {
     res.send("Hello world!<br><br>You can access /{SUB_PATH}(Default: /sub) to get your nodes!");
+  }
+});
+
+// 将内容进行 base64 编码并写入 SUB_PATH 路由
+app.get(`/${SUB_PATH}`, async function(req, res) {
+  try {
+    const data = await fs.promises.readFile(subPath, 'utf8');
+	res.set('Content-Type', 'text/plain; charset=utf-8');
+	res.send(data);
+  } catch (err) {
+	console.error(err);
+	return res.status(500).send('');
   }
 });
 
