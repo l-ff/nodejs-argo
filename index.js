@@ -9,6 +9,7 @@ const exec = promisify(require('child_process').exec);
 const { legacyCreateProxyMiddleware } = require("http-proxy-middleware");
 const FILE_PATH = process.env.FILE_PATH || '.tmp';   // 运行目录,sub节点文件保存目录
 const SUB_PATH = process.env.SUB_PATH || 'sub';       // 订阅路径
+const DOMAIN = process.env.SERVER_DOMAIN || process.env.DOMAIN || 'example.com';  // http服务订阅域名或ip
 const PORT = process.env.SERVER_PORT || process.env.PORT || 3000;        // http服务订阅端口
 const UUID = process.env.UUID || '9afd1229-b893-40c1-84dd-51e7ce204913'; // 使用哪吒v1,在不同的平台运行需修改UUID,否则会覆盖
 const NEZHA_SERVER = process.env.NEZHA_SERVER || '';        // 哪吒服务地址，例如：nz.abc.com
@@ -406,6 +407,8 @@ async function generateLinks(argoDomain) {
     setTimeout(() => {
       const VMESS = { v: '2', ps: `${nodeName}`, add: CFIP, port: CFPORT, id: UUID, aid: '0', scy: 'auto', net: 'ws', type: 'none', host: argoDomain, path: '/vmess-argo?ed=2560', tls: 'tls', sni: argoDomain, alpn: '', fp: 'firefox'};
       const subTxt = `
+vless://${UUID}@${DOMAIN}:${PORT}?encryption=none&security=none&type=ws&path=%2Fvless-argo%3Fed%3D2560#${DOMAIN}-${ISP}
+
 vless://${UUID}@${CFIP}:${CFPORT}?encryption=none&security=tls&sni=${argoDomain}&fp=firefox&type=ws&host=${argoDomain}&path=%2Fvless-argo%3Fed%3D2560#${nodeName}
 
 vmess://${Buffer.from(JSON.stringify(VMESS)).toString('base64')}
