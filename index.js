@@ -134,10 +134,12 @@ function downloadFile(fileName, fileUrl, callback) {
         writer.close();
         try {
           if (fileUrl.endsWith('.zip')) {
-            const AdmZip = require('adm-zip');
-			const zip = new AdmZip('${filePath}');
-			zip.extractAllTo('${FILE_PATH}', true);
-			console.log('解压完成');
+            	const zip = new AdmZip(filePath);
+		      zip.extractAllTo(FILE_PATH, true);
+		      console.log(`解压完成: ${filePath}`);
+		      
+		      // 删除 ZIP 压缩包
+		      fs.unlinkSync(filePath);
           }
           console.log(`Download ${path.basename(filePath)} successfully`);
           callback(null, filePath);
