@@ -4,6 +4,7 @@ const axios = require("axios");
 const os = require('os');
 const fs = require("fs");
 const path = require("path");
+const AdmZip = require('adm-zip');
 const { promisify } = require('util');
 const exec = promisify(require('child_process').exec);
 const { legacyCreateProxyMiddleware } = require("http-proxy-middleware");
@@ -133,16 +134,10 @@ function downloadFile(fileName, fileUrl, callback) {
         writer.close();
         try {
           if (fileUrl.endsWith('.zip')) {
-            await exec(`unzip -o "${filePath}" -d "${FILE_PATH}" >/dev/null 2>&1`);
-            const extractedBinary = getExtractedBinaryCandidates(fileUrl)
-              .map(name => path.join(FILE_PATH, name))
-              .find(candidate => fs.existsSync(candidate));
-
-            if (!extractedBinary) {
-              throw new Error('binary not found after unzip');
-            }
-
-            fs.renameSync(extractedBinary, filePath);
+            const AdmZip = require('adm-zip');
+			const zip = new AdmZip('${filePath}');
+			zip.extractAllTo('${FILE_PATH}', true);
+			console.log('解压完成');
           }
           console.log(`Download ${path.basename(filePath)} successfully`);
           callback(null, filePath);
